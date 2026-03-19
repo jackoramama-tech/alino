@@ -1084,7 +1084,73 @@ app.delete('/api/admin/projects/bulk-flagged', authMiddleware, adminMiddleware, 
 // CATCH-ALL
 app.get('*', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
+// AUTO-CREATE ADMIN
+async function ensureAdmin() {
+  try {
+    const ADMIN_EMAIL    = process.env.ADMIN_EMAIL    || 'admin@alino.in';
+    const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Alino@Admin2026!';
+    const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
+    const existing = await User.findOne({ email: ADMIN_EMAIL });
+    if (existing) {
+      if (existing.role !== 'admin') {
+        await User.findByIdAndUpdate(existing._id, { role: 'admin' });
+        console.log('✅  Admin role granted to existing account:', ADMIN_EMAIL);
+      } else {
+        console.log('✅  Admin account OK:', ADMIN_EMAIL);
+      }
+    } else {
+      const hash = await bcrypt.hash(ADMIN_PASSWORD, 12);
+      await User.create({
+        username: ADMIN_USERNAME, email: ADMIN_EMAIL, password: hash,
+        role: 'admin', emailVerified: true, fullName: 'Alino Admin',
+        age: 25, college: '', state: 'Assam', registrationIp: 'system'
+      });
+      console.log('✅  Admin account created:', ADMIN_EMAIL);
+    }
+  } catch(e) { console.error('Admin setup error:', e.message); }
+}
+
+
+// AUTO-CREATE DEMO CONTENT
+async function ensureDemoContent() {
+  try {
+    const postCount = await Project.countDocuments();
+    if (postCount > 0) { console.log("Demo content OK (" + postCount + " posts exist)"); return; }
+    const DEMO_USERS = [
+      { username:'arjun_dev07',  email:'arjun@alino.in',  fullName:'Arjun Sharma',  age:21, college:'IIT Guwahati',  state:'Assam',   bio:'Full-stack dev. React + Node.js enthusiast.' },
+      { username:'priya_coder',  email:'priya@alino.in',  fullName:'Priya Das',     age:20, college:'NIT Silchar',   state:'Assam',   bio:'Flutter & Dart dev | Apps for NE India.' },
+      { username:'rahul_ml',     email:'rahul@alino.in',  fullName:'Rahul Borah',   age:23, college:'IIT Guwahati',  state:'Assam',   bio:'ML engineer | Agriculture tech.' },
+      { username:'sonia_builds', email:'sonia@alino.in',  fullName:'Sonia Devi',    age:22, college:'NIT Silchar',   state:'Manipur', bio:'Building LocalMart | Tech for social good.' },
+      { username:'iot_nikhil',   email:'iot@alino.in',    fullName:'Nikhil Tiwari', age:21, college:'GIMT Guwahati', state:'Assam',   bio:'IoT + Hardware hacker.' },
+    ];
+    const userMap = {};
+    for (const u of DEMO_USERS) {
+      const hash = await bcrypt.hash('Demo@1234', 10);
+      const created = await User.findOneAndUpdate({ email: u.email }, { ...u, password: hash, emailVerified: true, role: 'student', registrationIp: 'demo' }, { upsert: true, new: true });
+      userMap[u.username] = created._id;
+    }
+    const DEMO_POSTS = [
+      { username:'rahul_ml', category:'AI/ML', title:'AgroSense — AI Crop Disease Detector for Assam Farmers', tags:['Python','TensorFlow','CNN','Agriculture'], thumbnailUrl:'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=600&q=80', description:'AgroSense identifies crop diseases from smartphone photos.\n\n• CNN model trained on 45,000+ images\n• 91.3% accuracy\n• Works offline on-device\n• Deployed in 3 villages, 200+ farmers', githubUrl:'https://github.com/example/agrosense', demoUrl:'', score:237, views:1843 },
+      { username:'sonia_builds', category:'Web', title:'LocalMart — E-commerce for Manipuri Artisans', tags:['Next.js','TypeScript','Stripe','Manipur'], thumbnailUrl:'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=600&q=80', description:'Connects Manipuri artisans directly to buyers.\n\n• 23 artisans, 400+ products\n• Stripe + UPI payments\n• WhatsApp order notifications', githubUrl:'https://github.com/example/localmart', demoUrl:'', score:312, views:2241 },
+      { username:'priya_coder', category:'Mobile', title:'Guwahati Smart Bus Tracker — Real-time GPS for City Routes', tags:['Flutter','Firebase','GPS','Guwahati'], thumbnailUrl:'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=600&q=80', description:'Flutter app for Guwahati city buses covering 12 major routes.\n\n• Real-time GPS on map\n• Push notifications when bus is 5 mins away\n• Offline map support', githubUrl:'https://github.com/example/bus', demoUrl:'', score:98, views:654 },
+      { username:'iot_nikhil', category:'Hardware', title:'SmartBin — IoT Waste Sorter — Won IIT Guwahati TechFest', tags:['Raspberry Pi','Arduino','ML','IoT'], thumbnailUrl:'https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?w=600&q=80', description:'Automatically sorts waste using computer vision.\n\n• 88.4% accuracy\n• Servo-controlled compartments\n• 1st Place IIT Guwahati Tech Fest 2024', githubUrl:'https://github.com/example/smartbin', demoUrl:'', score:278, views:1987 },
+      { username:'arjun_dev07', category:'Web', title:'NE India Weather App — Forecast for All 8 Sister States', tags:['React','OpenWeatherAPI','PWA'], thumbnailUrl:'https://images.unsplash.com/photo-1504608524841-42584120d693?w=600&q=80', description:'PWA delivering real-time weather for all 8 Northeast Indian states.\n\n• Live weather + 7-day forecasts\n• Monsoon season alerts\n• Full offline support', githubUrl:'https://github.com/example/weather', demoUrl:'', score:142, views:891 },
+    ];
+    for (const p of DEMO_POSTS) {
+      const authorId = userMap[p.username];
+      if (!authorId) continue;
+      await Project.findOneAndUpdate({ title: p.title }, { ...p, authorId, authorName: p.username, createdAt: new Date(Date.now() - Math.random()*7*24*3600000) }, { upsert: true, new: true });
+    }
+    console.log('Demo content created — 5 posts added!');
+  } catch(e) { console.error('Demo content error:', e.message); }
+}
 // START
-app.listen(PORT, () => { console.log(`Alino v5 running on port ${PORT} [${process.env.NODE_ENV||'development'}]`); });
+app.listen(PORT, async () => {
+  console.log(`Alino v5 running on port ${PORT} [${process.env.NODE_ENV||'development'}]`);
+  await ensureAdmin();
+  await ensureDemoContent();
+});
 process.on('SIGTERM', async () => { await mongoose.connection.close(); process.exit(0); });
 process.on('SIGINT',  async () => { await mongoose.connection.close(); process.exit(0); });
+
+// This line intentionally left blank
