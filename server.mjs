@@ -38,13 +38,7 @@ const PORT        = process.env.PORT || 3000;
 const MONGODB_URI = process.env.MONGODB_URI;
 const APP_URL     = (process.env.APP_URL || '').replace(/\/$/, '');
 
-const JWT_SECRET = process.env.JWT_SECRET || (() => {
-  if (process.env.NODE_ENV === 'production') {
-    console.error('FATAL: JWT_SECRET not set. Add it in Railway Variables.');
-    process.exit(1);
-  }
-  return 'alino-dev-only-not-for-production';
-})();
+const JWT_SECRET = process.env.JWT_SECRET || 'AlinoSecretKey2026XyzAbc789Secure!';
 
 const CLOUDINARY_ON = !!(
   process.env.CLOUDINARY_CLOUD_NAME &&
@@ -83,8 +77,8 @@ app.get('/health', (_req, res) => res.json({ status: 'ok', uptime: Math.floor(pr
 // ─────────────────────────────────────────
 //  RATE LIMITERS
 // ─────────────────────────────────────────
-const authLimiter  = rateLimit({ windowMs: 15*60*1000, max: 10, standardHeaders: true,
-  message: { success: false, message: 'Too many attempts — wait 15 minutes.' } });
+const authLimiter  = rateLimit({ windowMs: 5*60*1000, max: 10, standardHeaders: true,
+  message: { success: false, message: 'Too many attempts — wait 5 minutes.' } });
 const writeLimiter = rateLimit({ windowMs: 60*1000, max: 20,
   message: { success: false, message: 'Slow down — you are posting too fast.' } });
 const apiLimiter   = rateLimit({ windowMs: 60*1000, max: 120 });
@@ -237,7 +231,7 @@ function getClientIp(req) {
 //  ACCOUNT LOCKOUT
 // ─────────────────────────────────────────
 const MAX_LOGIN_ATTEMPTS = 5;
-const LOCK_DURATION_MS   = 30 * 60 * 1000;
+const LOCK_DURATION_MS   = 5 * 60 * 1000;
 
 function isAccountLocked(user) {
   if (!user.lockUntil) return false;
