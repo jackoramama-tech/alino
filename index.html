@@ -1419,7 +1419,8 @@ const App = {
     this.state.user  = user;
     localStorage.setItem('alino_token', res.data.token);
     localStorage.setItem('alino_user',  JSON.stringify(user));
-    this.showSetup(username);
+    document.getElementById('auth-screen').classList.remove('show');
+    this.enterApp();
   },
 
   logout() {
