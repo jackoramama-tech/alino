@@ -1115,7 +1115,7 @@ async function ensureAdmin() {
 async function ensureDemoContent() {
   try {
     const postCount = await Project.countDocuments();
-    if (postCount > 0) { console.log("Demo content OK (" + postCount + " posts exist)"); return; }
+    if (postCount >= 5) { console.log("Demo content OK (" + postCount + " posts exist)"); return; }
     const DEMO_USERS = [
       { username:'arjun_dev07',  email:'arjun@alino.in',  fullName:'Arjun Sharma',  age:21, college:'IIT Guwahati',  state:'Assam',   bio:'Full-stack dev. React + Node.js enthusiast.' },
       { username:'priya_coder',  email:'priya@alino.in',  fullName:'Priya Das',     age:20, college:'NIT Silchar',   state:'Assam',   bio:'Flutter & Dart dev | Apps for NE India.' },
