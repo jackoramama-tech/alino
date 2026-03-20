@@ -7,6 +7,7 @@
 //       Profanity filter · IP tracking · Bulk delete flagged
 // ═══════════════════════════════════════════════════════════
 import 'dotenv/config';
+import webpush from 'web-push';
 import express    from 'express';
 import mongoose   from 'mongoose';
 import multer     from 'multer';
@@ -37,6 +38,17 @@ app.set('trust proxy', 1);
 const PORT        = process.env.PORT || 3000;
 const MONGODB_URI = process.env.MONGODB_URI;
 const APP_URL     = (process.env.APP_URL || '').replace(/\/$/, '');
+
+// Web Push VAPID setup
+const VAPID_PUBLIC  = process.env.VAPID_PUBLIC  || '';
+const VAPID_PRIVATE = process.env.VAPID_PRIVATE || '';
+const VAPID_EMAIL   = process.env.VAPID_EMAIL   || 'mailto:admin@alino.in';
+if (VAPID_PUBLIC && VAPID_PRIVATE) {
+  webpush.setVapidDetails(VAPID_EMAIL, VAPID_PUBLIC, VAPID_PRIVATE);
+  console.log('✅  Web Push configured');
+} else {
+  console.log('ℹ️   Web Push not configured (add VAPID_PUBLIC, VAPID_PRIVATE to Railway)');
+}
 
 const JWT_SECRET = process.env.JWT_SECRET || 'AlinoSecretKey2026XyzAbc789Secure!';
 
@@ -174,6 +186,15 @@ const CommentSchema = new mongoose.Schema({
   content:   { type: String, required: true, maxlength: 1000 },
   createdAt: { type: Date, default: Date.now }
 });
+
+const PushSubscriptionSchema = new mongoose.Schema({
+  userId:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+  endpoint: { type: String, required: true },
+  keys:     { p256dh: String, auth: String },
+  createdAt:{ type: Date, default: Date.now }
+});
+PushSubscriptionSchema.index({ userId: 1, endpoint: 1 }, { unique: true });
+const PushSub = mongoose.model('PushSub', PushSubscriptionSchema);
 
 const NotificationSchema = new mongoose.Schema({
   userId:       { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
@@ -861,7 +882,10 @@ app.post('/api/projects/:id/like', authMiddleware, async (req, res) => {
     await Interaction.create({ projectId: project._id, userId: req.user.id, type: 'like' });
     updateScoreAsync(project._id);
     await User.findByIdAndUpdate(project.authorId,{$inc:{reputation:1}});
-    if (project.authorId.toString()!==req.user.id) { await Notification.create({userId:project.authorId,message:`${req.user.username} upvoted your project "${project.title}"`,projectId:project._id}); broadcast({type:'notification',userId:project.authorId.toString()}); }
+    if (project.authorId.toString()!==req.user.id) {
+      const recentNotif = await Notification.findOne({ userId: project.authorId, projectId: project._id, message: { $regex: 'upvoted' }, createdAt: { $gte: new Date(Date.now()-60*60*1000) } });
+      if (!recentNotif) await Notification.create({userId:project.authorId,message:`${req.user.username} upvoted your project "${project.title}"`,projectId:project._id});
+      broadcast({type:'notification',userId:project.authorId.toString()}); }
     res.json({ success: true, data: { liked: true } });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
@@ -885,7 +909,11 @@ app.post('/api/projects/:id/comments', authMiddleware, writeLimiter, async (req,
     const project = await Project.findById(req.params.id,'authorId title');
     if (!project) return res.status(404).json({ success: false, message: 'Project not found' });
     const comment = await Comment.create({ projectId: req.params.id, userId: req.user.id, username: req.user.username, content: cleanContent });
-    if (project.authorId.toString()!==req.user.id) { await Notification.create({userId:project.authorId,message:`${req.user.username} commented on "${project.title}"`,projectId:project._id}); broadcast({type:'notification',userId:project.authorId.toString()}); }
+    if (project.authorId.toString()!==req.user.id) {
+      await Notification.create({userId:project.authorId,message:`${req.user.username} commented on "${project.title}"`,projectId:project._id});
+      const nCount = await Notification.countDocuments({userId:project.authorId});
+      if (nCount > 100) { const oldest = await Notification.find({userId:project.authorId}).sort({createdAt:1}).limit(nCount-100).select('_id'); await Notification.deleteMany({_id:{$in:oldest.map(n=>n._id)}}); }
+      broadcast({type:'notification',userId:project.authorId.toString()}); }
     if (flaggedContent(cleanContent)) await moderateContent(project._id, req.user.id, 'comment-filter');
     res.status(201).json({ success: true, data: comment });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
@@ -1115,7 +1143,7 @@ app.delete('/api/admin/projects/bulk-flagged', authMiddleware, adminMiddleware, 
 // CATCH-ALL
 
 // ─── FOLLOW ROUTES ────────────────────────────────────────────────────────────
-app.post('/api/users/:id/follow', authMiddleware, async (req, res) => {
+app.post('/api/users/:id/follow', authMiddleware, writeLimiter, async (req, res) => {
   try {
     const followingId = req.params.id;
     const followerId = req.user.id;
@@ -1126,8 +1154,11 @@ app.post('/api/users/:id/follow', authMiddleware, async (req, res) => {
       return res.json({ success: true, following: false });
     }
     await Follow.create({ followerId, followingId });
-    // Notify
-    await Notification.create({ userId: followingId, type: 'follow', fromUserId: followerId, fromUsername: req.user.username, message: `u/${req.user.username} started following you` });
+    const recentFollowNotif = await Notification.findOne({ userId: followingId, fromUserId: followerId, type: 'follow', createdAt: { $gte: new Date(Date.now()-24*60*60*1000) } });
+    if (!recentFollowNotif) {
+      await Notification.create({ userId: followingId, type: 'follow', fromUserId: followerId, fromUsername: req.user.username, message: `u/${req.user.username} started following you` });
+      sendPushToUser(followingId, '👤 New Follower!', `u/${req.user.username} started following you`, '/');
+    }
     res.json({ success: true, following: true });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -1216,9 +1247,52 @@ app.get('/api/featured', async (req, res) => {
 
 app.post('/api/admin/featured/:projectId', authMiddleware, adminMiddleware, async (req, res) => {
   try {
+    const proj = await Project.findById(req.params.projectId, 'title');
+    if (!proj) return res.status(404).json({ success: false, message: 'Project not found' });
     await FeaturedPost.deleteMany({});
     await FeaturedPost.create({ projectId: req.params.projectId, setBy: req.user.id });
-    res.json({ success: true, message: 'Featured post updated!' });
+    res.json({ success: true, message: `"${proj.title}" is now Project of the Week!` });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// ─── PUSH NOTIFICATION HELPER ────────────────────────────────────────────────
+async function sendPushToUser(userId, title, body, url = '/') {
+  if (!VAPID_PUBLIC || !VAPID_PRIVATE) return;
+  try {
+    const subs = await PushSub.find({ userId });
+    const payload = JSON.stringify({ title, body, url, icon: '/icon-192.png', badge: '/icon-192.png' });
+    for (const sub of subs) {
+      try {
+        await webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } }, payload);
+      } catch(e) {
+        if (e.statusCode === 410 || e.statusCode === 404) await PushSub.deleteOne({ _id: sub._id });
+      }
+    }
+  } catch(e) { console.error('Push error:', e.message); }
+}
+
+// ─── PUSH ROUTES ──────────────────────────────────────────────────────────────
+app.get('/api/push/vapid-key', (req, res) => {
+  res.json({ success: true, data: { publicKey: VAPID_PUBLIC || null } });
+});
+
+app.post('/api/push/subscribe', authMiddleware, async (req, res) => {
+  try {
+    const { endpoint, keys } = req.body;
+    if (!endpoint || !keys) return res.status(400).json({ success: false, message: 'Invalid subscription' });
+    await PushSub.findOneAndUpdate(
+      { userId: req.user.id, endpoint },
+      { userId: req.user.id, endpoint, keys },
+      { upsert: true, new: true }
+    );
+    res.json({ success: true, message: 'Subscribed to push notifications!' });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.post('/api/push/unsubscribe', authMiddleware, async (req, res) => {
+  try {
+    await PushSub.deleteMany({ userId: req.user.id });
+    res.json({ success: true, message: 'Unsubscribed from push notifications' });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
