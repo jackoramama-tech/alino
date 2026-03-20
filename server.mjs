@@ -7,7 +7,7 @@
 //       Profanity filter · IP tracking · Bulk delete flagged
 // ═══════════════════════════════════════════════════════════
 import 'dotenv/config';
-import webpush from 'web-push';
+// web-push loaded dynamically to prevent crash if not installed
 import express    from 'express';
 import mongoose   from 'mongoose';
 import multer     from 'multer';
@@ -43,12 +43,21 @@ const APP_URL     = (process.env.APP_URL || '').replace(/\/$/, '');
 const VAPID_PUBLIC  = process.env.VAPID_PUBLIC  || '';
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE || '';
 const VAPID_EMAIL   = process.env.VAPID_EMAIL   || 'mailto:admin@alino.in';
-if (VAPID_PUBLIC && VAPID_PRIVATE) {
-  webpush.setVapidDetails(VAPID_EMAIL, VAPID_PUBLIC, VAPID_PRIVATE);
-  console.log('✅  Web Push configured');
-} else {
-  console.log('ℹ️   Web Push not configured (add VAPID_PUBLIC, VAPID_PRIVATE to Railway)');
-}
+let webpush = null;
+(async () => {
+  try {
+    const wp = await import('web-push');
+    webpush = wp.default;
+    if (VAPID_PUBLIC && VAPID_PRIVATE) {
+      webpush.setVapidDetails(VAPID_EMAIL, VAPID_PUBLIC, VAPID_PRIVATE);
+      console.log('✅  Web Push configured');
+    } else {
+      console.log('ℹ️   Web Push not configured (add VAPID_PUBLIC, VAPID_PRIVATE to Railway)');
+    }
+  } catch(e) {
+    console.log('ℹ️   web-push not available — push notifications disabled');
+  }
+})();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'AlinoSecretKey2026XyzAbc789Secure!';
 
@@ -1368,3 +1377,4 @@ process.on('SIGTERM', async () => { await mongoose.connection.close(); process.e
 process.on('SIGINT',  async () => { await mongoose.connection.close(); process.exit(0); });
 
 // This line intentionally left blank
+
