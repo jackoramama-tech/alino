@@ -251,11 +251,11 @@ const FeaturedPostSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
-const MessageSchema=new mongoose.Schema({fromId:{type:mongoose.Schema.Types.ObjectId,ref:'User',index:true},toId:{type:mongoose.Schema.Types.ObjectId,ref:'User',index:true},content:{type:String,required:true,maxlength:2000},read:{type:Boolean,default:false},createdAt:{type:Date,default:Date.now}});
-MessageSchema.index({fromId:1,toId:1,createdAt:-1});
-const Follow=mongoose.model('Follow',FollowSchema);
-const FeaturedPost=mongoose.model('FeaturedPost',FeaturedPostSchema);
-const Message=mongoose.model('Message',MessageSchema);
+const MessageSchema = new mongoose.Schema({ fromId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true }, toId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true }, content: { type: String, required: true, maxlength: 2000 }, read: { type: Boolean, default: false }, createdAt: { type: Date, default: Date.now } });
+MessageSchema.index({ fromId: 1, toId: 1, createdAt: -1 });
+const Follow = mongoose.model('Follow', FollowSchema);
+const FeaturedPost = mongoose.model('FeaturedPost', FeaturedPostSchema);
+const Message = mongoose.model('Message', MessageSchema);
 const User              = mongoose.model('User',              UserSchema);
 const Project           = mongoose.model('Project',           ProjectSchema);
 const Interaction       = mongoose.model('Interaction',       InteractionSchema);
@@ -524,9 +524,9 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     const cleanState    = NE_STATES.includes(state) ? state : '';
     const parsedAge     = age ? parseInt(age, 10) : null;
 
-    if(parsedAge!==null&&!isNaN(parsedAge)){
-      if(parsedAge<16)return res.status(400).json({success:false,message:'You must be at least 16 years old.'});
-      if(parsedAge>120)return res.status(400).json({success:false,message:'Please enter a valid age.'});
+    if (parsedAge !== null && !isNaN(parsedAge)) {
+      if (parsedAge < 16) return res.status(400).json({ success: false, message: 'You must be at least 16 years old.' });
+      if (parsedAge > 120) return res.status(400).json({ success: false, message: 'Please enter a valid age.' });
     }
 
     if (password.length < 6)
@@ -567,7 +567,16 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
       role, emailVerified, registrationIp
     });
 
-    if(EMAIL_ON){setImmediate(async()=>{try{const vt=crypto.randomBytes(32).toString('hex');await EmailVerification.create({userId:user._id,token:vt,expiresAt:new Date(Date.now()+86400000)});const vUrl=(APP_URL||'http://localhost:'+PORT)+'/?verify='+vt;await sendEmail(cleanEmail,'Verify your Alino email',verifyEmailHtml(cleanUsername,vUrl));}catch(e){console.error('Email bg:',e.message);}});}
+    if (EMAIL_ON) {
+      setImmediate(async () => {
+        try {
+          const vt = crypto.randomBytes(32).toString('hex');
+          await EmailVerification.create({ userId: user._id, token: vt, expiresAt: new Date(Date.now()+86400000) });
+          const vUrl = (APP_URL||'http://localhost:'+PORT) + '/?verify=' + vt;
+          await sendEmail(cleanEmail, 'Verify your Alino email', verifyEmailHtml(cleanUsername, vUrl));
+        } catch(e) { console.error('Email bg:', e.message); }
+      });
+    }
 
     const tokenJwt = jwt.sign({ id: user._id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
     res.status(201).json({ success: true, data: {
@@ -692,9 +701,9 @@ app.get('/api/projects', async (req, res) => {
 
     const query = {};
     if (search) {
-      const safe = search.replace(/[-[\]{}()*+?.,\\^$|#]/g,'\\$&');
-      const re = new RegExp(safe,'i');
-      query.$or=[{title:re},{description:re},{tags:re},{authorName:re},{category:re}];
+      const safe = search.replace(/[-[\]{}()*+?.,\\^$|#]/g, '\\$&');
+      const re = new RegExp(safe, 'i');
+      query.$or = [{ title: re }, { description: re }, { tags: re }, { authorName: re }, { category: re }];
     }
     if (category) query.category = category;
     if (tag)      query.tags     = tag;
@@ -1198,15 +1207,42 @@ app.get('/api/users/:id/following', async (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-// ─── DM ROUTES ───────────────────────────────────────────────────────────────
-app.post('/api/dm/:toId',authMiddleware,writeLimiter,async(req,res)=>{
-  try{const{content}=req.body;if(!content?.trim())return res.status(400).json({success:false,message:'Empty'});if(String(req.params.toId)===String(req.user.id))return res.status(400).json({success:false,message:"Can't message yourself"});const toUser=await User.findById(req.params.toId).select('username');if(!toUser)return res.status(404).json({success:false,message:'User not found'});const msg=await Message.create({fromId:req.user.id,toId:req.params.toId,content:sanitize(content,2000)});await Notification.create({userId:req.params.toId,message:`New message from u/${req.user.username}`,type:'dm',fromUserId:req.user.id,fromUsername:req.user.username});res.json({success:true,data:{_id:msg._id,fromId:msg.fromId,toId:msg.toId,content:msg.content,read:msg.read,createdAt:msg.createdAt}});}catch(e){res.status(500).json({success:false,message:e.message});}
+// ─── DIRECT MESSAGES ─────────────────────────────────────────────────────────
+app.post('/api/dm/:toId', authMiddleware, writeLimiter, async (req, res) => {
+  try {
+    const { content } = req.body;
+    if (!content || !content.trim()) return res.status(400).json({ success: false, message: 'Message cannot be empty' });
+    if (String(req.params.toId) === String(req.user.id)) return res.status(400).json({ success: false, message: "Can't message yourself" });
+    const toUser = await User.findById(req.params.toId).select('username');
+    if (!toUser) return res.status(404).json({ success: false, message: 'User not found' });
+    const msg = await Message.create({ fromId: req.user.id, toId: req.params.toId, content: sanitize(content, 2000) });
+    await Notification.create({ userId: req.params.toId, message: 'New message from u/' + req.user.username, type: 'dm', fromUserId: req.user.id, fromUsername: req.user.username });
+    res.json({ success: true, data: { _id: msg._id, fromId: msg.fromId, toId: msg.toId, content: msg.content, read: msg.read, createdAt: msg.createdAt } });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
-app.get('/api/dm/conversations',authMiddleware,async(req,res)=>{
-  try{const myId=new mongoose.Types.ObjectId(req.user.id);const msgs=await Message.aggregate([{$match:{$or:[{fromId:myId},{toId:myId}]}},{$sort:{createdAt:-1}},{$group:{_id:{$cond:[{$lt:['$fromId','$toId']},{a:'$fromId',b:'$toId'},{a:'$toId',b:'$fromId'}]},lastMsg:{$first:'$$ROOT'},unread:{$sum:{$cond:[{$and:[{$eq:['$toId',myId]},{$eq:['$read',false]}]},1,0]}}}},{$sort:{'lastMsg.createdAt':-1}},{$limit:30}]);const pIds=msgs.map(m=>String(m.lastMsg.fromId)===String(myId)?m.lastMsg.toId:m.lastMsg.fromId);const partners=await User.find({_id:{$in:pIds}}).select('username avatarUrl');const pm={};partners.forEach(u=>{pm[String(u._id)]=u;});res.json({success:true,data:msgs.map(m=>{const pId=String(m.lastMsg.fromId)===String(myId)?String(m.lastMsg.toId):String(m.lastMsg.fromId);return{partner:pm[pId]||{_id:pId,username:'Unknown'},lastMsg:m.lastMsg,unread:m.unread};})});}catch(e){res.status(500).json({success:false,message:e.message});}
+app.get('/api/dm/conversations', authMiddleware, async (req, res) => {
+  try {
+    const myId = new mongoose.Types.ObjectId(req.user.id);
+    const msgs = await Message.aggregate([
+      { $match: { $or: [{ fromId: myId }, { toId: myId }] } },
+      { $sort: { createdAt: -1 } },
+      { $group: { _id: { $cond: [{ $lt: ['$fromId','$toId'] }, { a:'$fromId',b:'$toId' }, { a:'$toId',b:'$fromId' }] }, lastMsg: { $first: '$$ROOT' }, unread: { $sum: { $cond: [{ $and: [{ $eq: ['$toId', myId] }, { $eq: ['$read', false] }] }, 1, 0] } } } },
+      { $sort: { 'lastMsg.createdAt': -1 } }, { $limit: 30 }
+    ]);
+    const pIds = msgs.map(m => String(m.lastMsg.fromId) === String(myId) ? m.lastMsg.toId : m.lastMsg.fromId);
+    const partners = await User.find({ _id: { $in: pIds } }).select('username avatarUrl');
+    const pm = {}; partners.forEach(u => { pm[String(u._id)] = u; });
+    res.json({ success: true, data: msgs.map(m => { const pId = String(m.lastMsg.fromId) === String(myId) ? String(m.lastMsg.toId) : String(m.lastMsg.fromId); return { partner: pm[pId] || { _id: pId, username: 'Unknown' }, lastMsg: m.lastMsg, unread: m.unread }; }) });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
-app.get('/api/dm/:userId',authMiddleware,async(req,res)=>{
-  try{const myId=new mongoose.Types.ObjectId(req.user.id);const otherId=new mongoose.Types.ObjectId(req.params.userId);const msgs=await Message.find({$or:[{fromId:myId,toId:otherId},{fromId:otherId,toId:myId}]}).sort({createdAt:1}).limit(100);await Message.updateMany({fromId:otherId,toId:myId,read:false},{read:true});res.json({success:true,data:msgs});}catch(e){res.status(500).json({success:false,message:e.message});}
+app.get('/api/dm/:userId', authMiddleware, async (req, res) => {
+  try {
+    const myId = new mongoose.Types.ObjectId(req.user.id);
+    const otherId = new mongoose.Types.ObjectId(req.params.userId);
+    const msgs = await Message.find({ $or: [{ fromId: myId, toId: otherId }, { fromId: otherId, toId: myId }] }).sort({ createdAt: 1 }).limit(100);
+    await Message.updateMany({ fromId: otherId, toId: myId, read: false }, { read: true });
+    res.json({ success: true, data: msgs });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 // ─── SEARCH BY COLLEGE/STATE ──────────────────────────────────────────────────
 app.get('/api/search/users', async (req, res) => {
