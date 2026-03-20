@@ -1,15 +1,11 @@
-// Alino Service Worker — FIX #11
-// Caches the shell so the app loads instantly and works offline
-
-const CACHE = 'alino-v1';
+// Alino Service Worker — v2 with Push Notifications
+const CACHE = 'alino-v2';
 const SHELL = [
   '/',
   '/index.html',
   '/manifest.json',
   '/icon-192.png',
-  '/icon-512.png',
-  'https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap',
-  'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
+  '/icon-512.png'
 ];
 
 // Install: cache the app shell
@@ -28,18 +24,13 @@ self.addEventListener('activate', e => {
   );
 });
 
-// Fetch strategy:
-//  - API calls → network only (always fresh data)
-//  - Everything else → cache first, fall back to network
+// Fetch: network first for API, cache first for assets
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-
-  // Never cache API responses or non-GET requests
   if (e.request.method !== 'GET' || url.pathname.startsWith('/api/')) {
     e.respondWith(fetch(e.request));
     return;
   }
-
   e.respondWith(
     caches.match(e.request).then(cached => {
       const fresh = fetch(e.request).then(res => {
@@ -48,8 +39,41 @@ self.addEventListener('fetch', e => {
           caches.open(CACHE).then(c => c.put(e.request, clone));
         }
         return res;
-      }).catch(() => cached); // if offline, use cached
+      }).catch(() => cached);
       return cached || fresh;
+    })
+  );
+});
+
+// Push Notifications
+self.addEventListener('push', e => {
+  if (!e.data) return;
+  let data = {};
+  try { data = e.data.json(); } catch { data = { title: 'Alino', body: e.data.text() }; }
+  const options = {
+    body: data.body || 'You have a new notification',
+    icon: data.icon || '/icon-192.png',
+    badge: data.badge || '/icon-192.png',
+    data: { url: data.url || '/' },
+    vibrate: [200, 100, 200],
+    requireInteraction: false
+  };
+  e.waitUntil(self.registration.showNotification(data.title || 'Alino', options));
+});
+
+// Notification click: open the app
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = e.notification.data?.url || '/';
+  e.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+      for (const client of clientList) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          client.navigate(url);
+          return client.focus();
+        }
+      }
+      if (clients.openWindow) return clients.openWindow(url);
     })
   );
 });
