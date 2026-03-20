@@ -521,13 +521,13 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     const cleanState    = NE_STATES.includes(state) ? state : '';
     const parsedAge     = age ? parseInt(age, 10) : null;
 
-    // Age is required and must be 16+
-    if (parsedAge === null || isNaN(parsedAge))
-      return res.status(400).json({ success: false, message: 'Please enter your age to continue.' });
-    if (parsedAge < 16)
-      return res.status(400).json({ success: false, message: 'You must be at least 16 years old to join Alino.' });
-    if (parsedAge > 120)
-      return res.status(400).json({ success: false, message: 'Please enter a valid age.' });
+    // Age is optional but must be 16+ if provided
+    if (parsedAge !== null && !isNaN(parsedAge)) {
+      if (parsedAge < 16)
+        return res.status(400).json({ success: false, message: 'You must be at least 16 years old to join Alino.' });
+      if (parsedAge > 120)
+        return res.status(400).json({ success: false, message: 'Please enter a valid age.' });
+    }
 
     if (password.length < 6)
       return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
@@ -696,7 +696,17 @@ app.get('/api/projects', async (req, res) => {
     const skip     = (page-1)*limit;
 
     const query = {};
-    if (search)   query.$text    = { $search: search };
+    if (search) {
+      const safe = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(safe, 'i');
+      query.$or = [
+        { title:       re },
+        { description: re },
+        { tags:        re },
+        { authorName:  re },
+        { category:    re }
+      ];
+    }
     if (category) query.category = category;
     if (tag)      query.tags     = tag;
 
