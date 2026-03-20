@@ -258,7 +258,7 @@ nav#main-nav{position:sticky;top:0;z-index:300;height:var(--nav-h);background:va
 .view{display:none}
 .view.active{display:contents}
 #home-view.active{display:contents}
-#profile-view.active,#upload-view.active,#admin-view.active,#search-view.active{display:block}
+#profile-view.active,#upload-view.active,#admin-view.active,#search-view.active,#dm-view.active{display:block}
 
 /* ── FEED ── */
 .feed-col{min-width:0}
@@ -493,11 +493,10 @@ tr:last-child td{border-bottom:none}
 /* ── BOTTOM NAV ── */
 #bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;z-index:400;background:var(--surface);border-top:1px solid var(--border);height:56px;align-items:stretch}
 #main-app.show ~ #bottom-nav, #bottom-nav.show{display:flex}
-.bnav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;font-size:.62rem;font-weight:600;color:var(--txt2);border:none;background:none;padding:6px 0;transition:color .15s}
+.bnav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;font-size:.55rem;font-weight:600;color:var(--txt2);border:none;background:none;padding:4px 0;transition:color .15s;min-width:0}
 .bnav-item.active,.bnav-item:hover{color:var(--brand)}
-.bnav-item svg{width:22px;height:22px}
-@media(min-width:768px){#bottom-nav{display:none!important}}
-@media(max-width:767px){#main-app.show{padding-bottom:60px}}
+.bnav-item svg{width:18px;height:18px}
+@media(min-width:768px){#main-app.show{padding-bottom:60px}}
 
 /* ── FOLLOW BTN ── */
 .follow-btn{padding:6px 18px;border-radius:20px;font-size:.82rem;font-weight:700;cursor:pointer;border:2px solid var(--brand);transition:all .15s}
@@ -1020,7 +1019,7 @@ tr:last-child td{border-bottom:none}
   <div class="view" id="search-view">
     <div style="max-width:700px;margin:0 auto;padding:20px 16px">
       <h2 style="font-size:1.2rem;font-weight:800;margin-bottom:12px">🔍 Search Projects</h2>
-      <input type="text" id="proj-search-q" placeholder="Search by project name, tag, category..." class="form-input" style="width:100%;margin-bottom:8px" oninput="App.handleProjectSearch(this.value)">
+      <input type="text" id="proj-search-q" placeholder="Search by name, tag, category..." class="form-input" style="width:100%;margin-bottom:8px" oninput="App.handleProjectSearch(this.value)">
       <div id="proj-search-results" style="margin-bottom:28px"><p style="color:var(--txt2);text-align:center;padding:20px 0">Start typing to search projects 👆</p></div>
       <h2 style="font-size:1.2rem;font-weight:800;margin-bottom:12px">👤 Find People</h2>
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
@@ -2254,13 +2253,68 @@ const App = {
   handleProjectSearch(v) {
     clearTimeout(this._pst);
     const el = document.getElementById('proj-search-results');
-    if (!v || !v.trim()) { el.innerHTML = '<p style="color:var(--txt2);text-align:center;padding:20px 0">Start typing to search projects 👆</p>'; return; }
+    if (!v || !v.trim()) { el.innerHTML = '<p style="color:var(--txt2);text-align:center;padding:20px 0">Start typing to search projects</p>'; return; }
     el.innerHTML = '<p style="color:var(--txt2);text-align:center;padding:12px 0">Searching...</p>';
     this._pst = setTimeout(async () => {
       const res = await this.api('GET', '/projects?search=' + encodeURIComponent(v.trim()) + '&limit=10&sort=newest');
-      if (!res.success || !res.data.projects.length) { el.innerHTML = '<p style="color:var(--txt2);text-align:center;padding:20px 0">No projects found for "' + this.esc(v) + '" 😕</p>'; return; }
-      el.innerHTML = res.data.projects.map(p => `<div onclick="App.showProject('${p._id}')" style="display:flex;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px;margin-bottom:8px;cursor:pointer">${p.thumbnailUrl?`<img src="${this.esc(p.thumbnailUrl)}" style="width:54px;height:54px;border-radius:4px;object-fit:cover;flex-shrink:0">`:`<div style="width:54px;height:54px;border-radius:4px;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:1.4rem;flex-shrink:0">📦</div>`}<div style="min-width:0"><div style="font-weight:700;font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${this.esc(p.title)}</div><div style="font-size:.78rem;color:var(--txt2);margin-top:2px">u/${this.esc(p.authorName)} · ${p.likes||0} upvotes</div><div style="font-size:.75rem;color:var(--brand);margin-top:2px">${this.esc(p.category)}</div></div></div>`).join('');
+      if (!res.success || !res.data.projects.length) { el.innerHTML = '<p style="color:var(--txt2);text-align:center;padding:20px 0">No projects found</p>'; return; }
+      el.innerHTML = res.data.projects.map(p => {
+        const thumb = p.thumbnailUrl
+          ? '<img src="' + p.thumbnailUrl + '" style="width:54px;height:54px;border-radius:4px;object-fit:cover;flex-shrink:0">'
+          : '<div style="width:54px;height:54px;border-radius:4px;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:1.4rem;flex-shrink:0">\u{1F4E6}</div>';
+        return '<div data-pid="' + p._id + '" class="psearch-item" style="display:flex;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px;margin-bottom:8px;cursor:pointer">' + thumb + '<div style="min-width:0"><div style="font-weight:700;font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + this.esc(p.title) + '</div><div style="font-size:.78rem;color:var(--txt2);margin-top:2px">u/' + this.esc(p.authorName) + ' &middot; ' + (p.likes||0) + ' upvotes</div><div style="font-size:.75rem;color:var(--brand);margin-top:2px">' + this.esc(p.category) + '</div></div></div>';
+      }).join('');
+      el.querySelectorAll('.psearch-item').forEach(function(item) { item.addEventListener('click', function() { App.showProject(item.dataset.pid); }); });
     }, 350);
+  },
+
+  openDMWith(userId, username) {
+    this.goto('dm'); this.setBottomNav('dm'); this.loadDMConversations(); this.openConversation(userId, username);
+  },
+
+  async loadDMConversations() {
+    if (!this.state.user) return;
+    const res = await this.api('GET', '/dm/conversations');
+    const el = document.getElementById('dm-conv-list');
+    if (!res.success || !res.data.length) { el.innerHTML = '<div style="padding:20px;color:var(--txt2);font-size:.82rem;text-align:center">No conversations yet.<br>Message someone from their profile.</div>'; return; }
+    el.innerHTML = res.data.map(c => {
+      const p = c.partner;
+      const preview = c.lastMsg.content.length > 35 ? c.lastMsg.content.slice(0, 35) + '...' : c.lastMsg.content;
+      const unread = c.unread > 0 ? '<span style="background:var(--brand);color:#fff;border-radius:10px;padding:1px 7px;font-size:.7rem;font-weight:700;margin-left:auto">' + c.unread + '</span>' : '';
+      return '<div data-uid="' + p._id + '" data-uname="' + this.esc(p.username) + '" class="dm-conv-item" style="padding:12px 14px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><div style="width:36px;height:36px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.9rem;flex-shrink:0">' + (p.username||'U')[0].toUpperCase() + '</div><div style="min-width:0;flex:1"><div style="font-weight:700;font-size:.85rem">u/' + this.esc(p.username) + '</div><div style="font-size:.75rem;color:var(--txt2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + this.esc(preview) + '</div></div>' + unread + '</div>';
+    }).join('');
+    var self = this;
+    el.querySelectorAll('.dm-conv-item').forEach(function(item) { item.addEventListener('click', function() { self.openConversation(item.dataset.uid, item.dataset.uname); }); });
+  },
+
+  async openConversation(userId, username) {
+    this.state.dmUserId = userId; this.state.dmUsername = username;
+    const nameEl = document.getElementById('dm-chat-name');
+    if (nameEl) { nameEl.textContent = 'u/' + username; nameEl.style.color = 'var(--brand)'; nameEl.style.cursor = 'pointer'; nameEl.onclick = function() { App.gotoProfile(userId); }; }
+    const input = document.getElementById('dm-input'); const btn = document.getElementById('dm-send-btn');
+    if (input) { input.disabled = false; input.focus(); } if (btn) btn.disabled = false;
+    const res = await this.api('GET', '/dm/' + userId);
+    const el = document.getElementById('dm-messages');
+    if (!res.success) { el.innerHTML = '<div style="text-align:center;color:var(--txt2);padding:20px">Failed to load</div>'; return; }
+    if (!res.data.length) { el.innerHTML = '<div style="text-align:center;color:var(--txt2);padding:40px;font-size:.85rem">No messages yet \u{1F44B}</div>'; return; }
+    var myId = this.state.user.id;
+    el.innerHTML = res.data.map(function(m) {
+      var mine = String(m.fromId) === String(myId);
+      return '<div style="display:flex;justify-content:' + (mine?'flex-end':'flex-start') + '"><div style="max-width:72%;background:' + (mine?'var(--brand)':'var(--surface)') + ';color:' + (mine?'#fff':'var(--txt)') + ';border-radius:' + (mine?'16px 16px 4px 16px':'16px 16px 16px 4px') + ';padding:10px 14px;font-size:.88rem;border:1px solid ' + (mine?'transparent':'var(--border)') + '">' + App.esc(m.content) + '<div style="font-size:.65rem;opacity:.7;margin-top:4px;text-align:right">' + App.timeAgo(m.createdAt) + '</div></div></div>';
+    }).join('');
+    el.scrollTop = el.scrollHeight;
+  },
+
+  async sendDM() {
+    const input = document.getElementById('dm-input'); const content = input && input.value.trim();
+    if (!content || !this.state.dmUserId) return;
+    input.value = ''; input.disabled = true;
+    const res = await this.api('POST', '/dm/' + this.state.dmUserId, { content: content });
+    input.disabled = false; input.focus();
+    if (!res.success) { this.toast(res.message, 'error'); return; }
+    const el = document.getElementById('dm-messages');
+    el.insertAdjacentHTML('beforeend', '<div style="display:flex;justify-content:flex-end"><div style="max-width:72%;background:var(--brand);color:#fff;border-radius:16px 16px 4px 16px;padding:10px 14px;font-size:.88rem">' + this.esc(content) + '<div style="font-size:.65rem;opacity:.7;margin-top:4px;text-align:right">just now</div></div></div>');
+    el.scrollTop = el.scrollHeight;
   },
 
   searchUsers() {
@@ -2397,6 +2451,15 @@ const App = {
       followBtn.textContent = 'Follow';
       acts.innerHTML = '';
       acts.appendChild(followBtn);
+      if (this.state.user) {
+        const dmBtn = document.createElement('button');
+        dmBtn.className = 'btn btn-outline btn-sm';
+        dmBtn.textContent = '💬 Message';
+        dmBtn.style.marginLeft = '8px';
+        var _u = userId, _n = user.username;
+        dmBtn.addEventListener('click', function() { App.openDMWith(_u, _n); });
+        acts.appendChild(dmBtn);
+      }
       this.loadFollowStatus(userId, followBtn);
     }
     this.loadBadges(userId);
@@ -2951,6 +3014,10 @@ App.init();
   <button class="bnav-item" id="bnav-create" onclick="App.goto('upload');App.setBottomNav('create')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
     Create
+  </button>
+  <button class="bnav-item" id="bnav-dm" onclick="App.goto('dm');App.setBottomNav('dm');App.loadDMConversations()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+    DMs
   </button>
   <button class="bnav-item" id="bnav-notif" onclick="App.toggleNotif();App.setBottomNav('notif')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
