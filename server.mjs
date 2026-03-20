@@ -521,7 +521,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
     const cleanState    = NE_STATES.includes(state) ? state : '';
     const parsedAge     = age ? parseInt(age, 10) : null;
 
-    // Age is optional but must be 16+ if provided
+    // Age optional — validate only if provided
     if (parsedAge !== null && !isNaN(parsedAge)) {
       if (parsedAge < 16)
         return res.status(400).json({ success: false, message: 'You must be at least 16 years old to join Alino.' });
@@ -567,11 +567,16 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
       role, emailVerified, registrationIp
     });
 
+    // Fire verification email in background — don't await, respond instantly
     if (EMAIL_ON) {
-      const token = crypto.randomBytes(32).toString('hex');
-      await EmailVerification.create({ userId: user._id, token, expiresAt: new Date(Date.now()+24*60*60*1000) });
-      const verifyUrl = `${APP_URL||'http://localhost:'+PORT}/?verify=${token}`;
-      await sendEmail(cleanEmail, 'Verify your Alino email', verifyEmailHtml(cleanUsername, verifyUrl));
+      setImmediate(async () => {
+        try {
+          const vtoken = crypto.randomBytes(32).toString('hex');
+          await EmailVerification.create({ userId: user._id, token: vtoken, expiresAt: new Date(Date.now()+24*60*60*1000) });
+          const verifyUrl = (APP_URL||'http://localhost:'+PORT)+'/?verify='+vtoken;
+          await sendEmail(cleanEmail, 'Verify your Alino email', verifyEmailHtml(cleanUsername, verifyUrl));
+        } catch(e) { console.error('Verification email error:', e.message); }
+      });
     }
 
     const tokenJwt = jwt.sign({ id: user._id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '30d' });
@@ -699,13 +704,7 @@ app.get('/api/projects', async (req, res) => {
     if (search) {
       const safe = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const re = new RegExp(safe, 'i');
-      query.$or = [
-        { title:       re },
-        { description: re },
-        { tags:        re },
-        { authorName:  re },
-        { category:    re }
-      ];
+      query.$or = [{ title: re }, { description: re }, { tags: re }, { authorName: re }, { category: re }];
     }
     if (category) query.category = category;
     if (tag)      query.tags     = tag;
