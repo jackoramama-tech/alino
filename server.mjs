@@ -98,8 +98,15 @@ mongoose.connection.on('error', err => console.error('MongoDB runtime error:', e
 //  SCHEMAS
 // ─────────────────────────────────────────
 const NE_STATES = [
-  'Assam','Arunachal Pradesh','Manipur','Meghalaya',
-  'Mizoram','Nagaland','Sikkim','Tripura','Other'
+  'Andhra Pradesh','Arunachal Pradesh','Assam','Bihar',
+  'Chhattisgarh','Goa','Gujarat','Haryana','Himachal Pradesh',
+  'Jharkhand','Karnataka','Kerala','Madhya Pradesh','Maharashtra',
+  'Manipur','Meghalaya','Mizoram','Nagaland','Odisha','Punjab',
+  'Rajasthan','Sikkim','Tamil Nadu','Telangana','Tripura',
+  'Uttar Pradesh','Uttarakhand','West Bengal',
+  'Andaman and Nicobar Islands','Chandigarh','Dadra and Nagar Haveli',
+  'Daman and Diu','Delhi','Jammu and Kashmir','Ladakh',
+  'Lakshadweep','Puducherry','Other'
 ];
 
 const UserSchema = new mongoose.Schema({
@@ -169,11 +176,14 @@ const CommentSchema = new mongoose.Schema({
 });
 
 const NotificationSchema = new mongoose.Schema({
-  userId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
-  message:   String,
-  projectId: { type: mongoose.Schema.Types.ObjectId, default: null },
-  read:      { type: Boolean, default: false },
-  createdAt: { type: Date, default: Date.now }
+  userId:       { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+  message:      String,
+  type:         { type: String, default: 'general' },
+  fromUserId:   { type: mongoose.Schema.Types.ObjectId, default: null },
+  fromUsername: { type: String, default: '' },
+  projectId:    { type: mongoose.Schema.Types.ObjectId, default: null },
+  read:         { type: Boolean, default: false },
+  createdAt:    { type: Date, default: Date.now }
 });
 
 const ReportSchema = new mongoose.Schema({
@@ -197,6 +207,22 @@ const PasswordResetSchema = new mongoose.Schema({
   used:      { type: Boolean, default: false }
 });
 
+
+const FollowSchema = new mongoose.Schema({
+  followerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+  followingId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+  createdAt: { type: Date, default: Date.now }
+});
+FollowSchema.index({ followerId: 1, followingId: 1 }, { unique: true });
+
+const FeaturedPostSchema = new mongoose.Schema({
+  projectId: { type: mongoose.Schema.Types.ObjectId, ref: 'Project' },
+  setBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const Follow = mongoose.model('Follow', FollowSchema);
+const FeaturedPost = mongoose.model('FeaturedPost', FeaturedPostSchema);
 const User              = mongoose.model('User',              UserSchema);
 const Project           = mongoose.model('Project',           ProjectSchema);
 const Interaction       = mongoose.model('Interaction',       InteractionSchema);
@@ -688,6 +714,11 @@ app.post('/api/projects', authMiddleware, writeLimiter, upload.fields([{name:'fi
     if (titleExists)
       return res.status(400).json({ success: false, message: 'A project with this title already exists. Please choose a unique title.' });
 
+    // Idempotency: prevent duplicate submissions within 10 seconds
+    const tenSecsAgo = new Date(Date.now() - 10000);
+    const recentDuplicate = await Project.findOne({ authorId: user._id, title: cleanTitle, createdAt: { $gte: tenSecsAgo } });
+    if (recentDuplicate) return res.status(429).json({ success: false, message: 'Duplicate submission detected. Your project was already posted.' });
+
     // 1 post per hour per user
     const oneHourAgo  = new Date(Date.now()-60*60*1000);
     const recentPost  = await Project.findOne({ authorId: user._id, createdAt: { $gte: oneHourAgo } });
@@ -1082,6 +1113,115 @@ app.delete('/api/admin/projects/bulk-flagged', authMiddleware, adminMiddleware, 
 });
 
 // CATCH-ALL
+
+// ─── FOLLOW ROUTES ────────────────────────────────────────────────────────────
+app.post('/api/users/:id/follow', authMiddleware, async (req, res) => {
+  try {
+    const followingId = req.params.id;
+    const followerId = req.user.id;
+    if (followerId === followingId) return res.status(400).json({ success: false, message: "Can't follow yourself" });
+    const existing = await Follow.findOne({ followerId, followingId });
+    if (existing) {
+      await Follow.deleteOne({ followerId, followingId });
+      return res.json({ success: true, following: false });
+    }
+    await Follow.create({ followerId, followingId });
+    // Notify
+    await Notification.create({ userId: followingId, type: 'follow', fromUserId: followerId, fromUsername: req.user.username, message: `u/${req.user.username} started following you` });
+    res.json({ success: true, following: true });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.get('/api/users/:id/follow-status', authMiddleware, async (req, res) => {
+  try {
+    const following = await Follow.findOne({ followerId: req.user.id, followingId: req.params.id });
+    const followerCount = await Follow.countDocuments({ followingId: req.params.id });
+    const followingCount = await Follow.countDocuments({ followerId: req.params.id });
+    res.json({ success: true, data: { following: !!following, followerCount, followingCount } });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.get('/api/users/:id/followers', async (req, res) => {
+  try {
+    const follows = await Follow.find({ followingId: req.params.id }).sort({ createdAt: -1 }).limit(50);
+    const ids = follows.map(f => f.followerId);
+    const users = await User.find({ _id: { $in: ids } }).select('username avatarUrl reputation college state');
+    res.json({ success: true, data: users });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.get('/api/users/:id/following', async (req, res) => {
+  try {
+    const follows = await Follow.find({ followerId: req.params.id }).sort({ createdAt: -1 }).limit(50);
+    const ids = follows.map(f => f.followingId);
+    const users = await User.find({ _id: { $in: ids } }).select('username avatarUrl reputation college state');
+    res.json({ success: true, data: users });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// ─── SEARCH BY COLLEGE/STATE ──────────────────────────────────────────────────
+app.get('/api/search/users', async (req, res) => {
+  try {
+    const { q, college, state, page = 1 } = req.query;
+    const limit = 20;
+    const query = { banned: false };
+    if (q) {
+      const safe = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.$or = [{ username: new RegExp(safe, 'i') }, { fullName: new RegExp(safe, 'i') }];
+    }
+    if (college) {
+      const safe = college.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.college = new RegExp(safe, 'i');
+    }
+    if (state) query.state = state;
+    const users = await User.find(query).select('username fullName avatarUrl college state reputation bio createdAt').sort({ reputation: -1 }).skip((page-1)*limit).limit(limit);
+    const total = await User.countDocuments(query);
+    res.json({ success: true, data: users, total, pages: Math.ceil(total/limit) });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// ─── BADGES ───────────────────────────────────────────────────────────────────
+function getBadges(user, postCount) {
+  const badges = [];
+  if (postCount >= 1) badges.push({ id: 'first_post', label: 'First Post', emoji: '🚀', desc: 'Shared your first project' });
+  if (postCount >= 5) badges.push({ id: 'builder', label: 'Builder', emoji: '🔨', desc: 'Shared 5+ projects' });
+  if (postCount >= 10) badges.push({ id: 'prolific', label: 'Prolific', emoji: '⚡', desc: 'Shared 10+ projects' });
+  if (user.reputation >= 10) badges.push({ id: 'rising', label: 'Rising Star', emoji: '⭐', desc: 'Earned 10+ reputation' });
+  if (user.reputation >= 100) badges.push({ id: 'popular', label: 'Popular', emoji: '🔥', desc: 'Earned 100+ reputation' });
+  if (user.reputation >= 500) badges.push({ id: 'legend', label: 'Legend', emoji: '👑', desc: 'Earned 500+ reputation' });
+  if (user.role === 'admin') badges.push({ id: 'admin', label: 'Admin', emoji: '🛡️', desc: 'Platform administrator' });
+  const daysSinceJoin = (Date.now() - new Date(user.createdAt).getTime()) / (1000*60*60*24);
+  if (daysSinceJoin >= 30) badges.push({ id: 'veteran', label: 'Veteran', emoji: '🎖️', desc: 'Member for 30+ days' });
+  return badges;
+}
+
+app.get('/api/users/:id/badges', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select('username reputation role createdAt');
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    const postCount = await Project.countDocuments({ authorId: user._id });
+    const badges = getBadges(user, postCount);
+    res.json({ success: true, data: badges });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// ─── PROJECT OF THE WEEK ──────────────────────────────────────────────────────
+app.get('/api/featured', async (req, res) => {
+  try {
+    const featured = await FeaturedPost.findOne().sort({ createdAt: -1 }).populate('projectId');
+    if (!featured || !featured.projectId) return res.json({ success: true, data: null });
+    res.json({ success: true, data: featured.projectId });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+app.post('/api/admin/featured/:projectId', authMiddleware, adminMiddleware, async (req, res) => {
+  try {
+    await FeaturedPost.deleteMany({});
+    await FeaturedPost.create({ projectId: req.params.projectId, setBy: req.user.id });
+    res.json({ success: true, message: 'Featured post updated!' });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
 app.get('*', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 
 // AUTO-CREATE ADMIN
@@ -1103,7 +1243,7 @@ async function ensureAdmin() {
       await User.create({
         username: ADMIN_USERNAME, email: ADMIN_EMAIL, password: hash,
         role: 'admin', emailVerified: true, fullName: 'Alino Admin',
-        age: 25, college: '', state: 'Assam', registrationIp: 'system'
+        age: 25, college: '', state: 'Tamil Nadu', registrationIp: 'system'
       });
       console.log('✅  Admin account created:', ADMIN_EMAIL);
     }
@@ -1118,7 +1258,7 @@ async function ensureDemoContent() {
     if (postCount >= 5) { console.log("Demo content OK (" + postCount + " posts exist)"); return; }
     const DEMO_USERS = [
       { username:'arjun_dev07',  email:'arjun@alino.in',  fullName:'Arjun Sharma',  age:21, college:'IIT Guwahati',  state:'Assam',   bio:'Full-stack dev. React + Node.js enthusiast.' },
-      { username:'priya_coder',  email:'priya@alino.in',  fullName:'Priya Das',     age:20, college:'NIT Silchar',   state:'Assam',   bio:'Flutter & Dart dev | Apps for NE India.' },
+      { username:'priya_coder',  email:'priya@alino.in',  fullName:'Priya Das',     age:20, college:'NIT Silchar',   state:'Assam',   bio:'Flutter & Dart dev | Building apps for students.' },
       { username:'rahul_ml',     email:'rahul@alino.in',  fullName:'Rahul Borah',   age:23, college:'IIT Guwahati',  state:'Assam',   bio:'ML engineer | Agriculture tech.' },
       { username:'sonia_builds', email:'sonia@alino.in',  fullName:'Sonia Devi',    age:22, college:'NIT Silchar',   state:'Manipur', bio:'Building LocalMart | Tech for social good.' },
       { username:'iot_nikhil',   email:'iot@alino.in',    fullName:'Nikhil Tiwari', age:21, college:'GIMT Guwahati', state:'Assam',   bio:'IoT + Hardware hacker.' },
@@ -1130,11 +1270,11 @@ async function ensureDemoContent() {
       userMap[u.username] = created._id;
     }
     const DEMO_POSTS = [
-      { username:'rahul_ml', category:'AI/ML', title:'AgroSense — AI Crop Disease Detector for Assam Farmers', tags:['Python','TensorFlow','CNN','Agriculture'], thumbnailUrl:'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=600&q=80', description:'AgroSense identifies crop diseases from smartphone photos.\n\n• CNN model trained on 45,000+ images\n• 91.3% accuracy\n• Works offline on-device\n• Deployed in 3 villages, 200+ farmers', githubUrl:'https://github.com/example/agrosense', demoUrl:'', score:237, views:1843 },
-      { username:'sonia_builds', category:'Web', title:'LocalMart — E-commerce for Manipuri Artisans', tags:['Next.js','TypeScript','Stripe','Manipur'], thumbnailUrl:'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=600&q=80', description:'Connects Manipuri artisans directly to buyers.\n\n• 23 artisans, 400+ products\n• Stripe + UPI payments\n• WhatsApp order notifications', githubUrl:'https://github.com/example/localmart', demoUrl:'', score:312, views:2241 },
-      { username:'priya_coder', category:'Mobile', title:'Guwahati Smart Bus Tracker — Real-time GPS for City Routes', tags:['Flutter','Firebase','GPS','Guwahati'], thumbnailUrl:'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=600&q=80', description:'Flutter app for Guwahati city buses covering 12 major routes.\n\n• Real-time GPS on map\n• Push notifications when bus is 5 mins away\n• Offline map support', githubUrl:'https://github.com/example/bus', demoUrl:'', score:98, views:654 },
+      { username:'rahul_ml', category:'AI/ML', title:'AgroSense — AI Crop Disease Detector for Indian Farmers', tags:['Python','TensorFlow','CNN','Agriculture'], thumbnailUrl:'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=600&q=80', description:'AgroSense identifies crop diseases from smartphone photos.\n\n• CNN model trained on 45,000+ images\n• 91.3% accuracy\n• Works offline on-device\n• Deployed in 3 villages, 200+ farmers', githubUrl:'https://github.com/example/agrosense', demoUrl:'', score:237, views:1843 },
+      { username:'sonia_builds', category:'Web', title:'LocalMart — E-commerce Platform for Local Artisans', tags:['Next.js','TypeScript','Stripe','Manipur'], thumbnailUrl:'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=600&q=80', description:'Connects Manipuri artisans directly to buyers.\n\n• 23 artisans, 400+ products\n• Stripe + UPI payments\n• WhatsApp order notifications', githubUrl:'https://github.com/example/localmart', demoUrl:'', score:312, views:2241 },
+      { username:'priya_coder', category:'Mobile', title:'Smart City Bus Tracker — Real-time GPS for City Routes', tags:['Flutter','Firebase','GPS','Guwahati'], thumbnailUrl:'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=600&q=80', description:'Flutter app for Guwahati city buses covering 12 major routes.\n\n• Real-time GPS on map\n• Push notifications when bus is 5 mins away\n• Offline map support', githubUrl:'https://github.com/example/bus', demoUrl:'', score:98, views:654 },
       { username:'iot_nikhil', category:'Hardware', title:'SmartBin — IoT Waste Sorter — Won IIT Guwahati TechFest', tags:['Raspberry Pi','Arduino','ML','IoT'], thumbnailUrl:'https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?w=600&q=80', description:'Automatically sorts waste using computer vision.\n\n• 88.4% accuracy\n• Servo-controlled compartments\n• 1st Place IIT Guwahati Tech Fest 2024', githubUrl:'https://github.com/example/smartbin', demoUrl:'', score:278, views:1987 },
-      { username:'arjun_dev07', category:'Web', title:'NE India Weather App — Forecast for All 8 Sister States', tags:['React','OpenWeatherAPI','PWA'], thumbnailUrl:'https://images.unsplash.com/photo-1504608524841-42584120d693?w=600&q=80', description:'PWA delivering real-time weather for all 8 Northeast Indian states.\n\n• Live weather + 7-day forecasts\n• Monsoon season alerts\n• Full offline support', githubUrl:'https://github.com/example/weather', demoUrl:'', score:142, views:891 },
+      { username:'arjun_dev07', category:'Web', title:'India Weather App — Real-time Forecast for All States', tags:['React','OpenWeatherAPI','PWA'], thumbnailUrl:'https://images.unsplash.com/photo-1504608524841-42584120d693?w=600&q=80', description:'PWA delivering real-time weather for all Indian states.\n\n• Live weather + 7-day forecasts\n• Monsoon season alerts\n• Full offline support', githubUrl:'https://github.com/example/weather', demoUrl:'', score:142, views:891 },
     ];
     for (const p of DEMO_POSTS) {
       const authorId = userMap[p.username];
