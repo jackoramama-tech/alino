@@ -1020,7 +1020,7 @@ tr:last-child td{border-bottom:none}
     <div style="max-width:700px;margin:0 auto;padding:20px 16px">
       <h2 style="font-size:1.2rem;font-weight:800;margin-bottom:12px">🔍 Search Projects</h2>
       <input type="text" id="proj-search-q" placeholder="Search by name, tag, category..." class="form-input" style="width:100%;margin-bottom:8px" oninput="App.handleProjectSearch(this.value)">
-      <div id="proj-search-results" style="margin-bottom:28px"><p style="color:var(--txt2);text-align:center;padding:20px 0">Start typing to search projects 👆</p></div>
+      <div id="proj-search-results" style="margin-bottom:28px"><p style="color:var(--txt2);text-align:center;padding:20px 0">Start typing to search projects</p></div>
       <h2 style="font-size:1.2rem;font-weight:800;margin-bottom:12px">👤 Find People</h2>
       <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
         <input type="text" id="user-search-q" placeholder="Search by name or username..." class="form-input" style="flex:1;min-width:200px" oninput="App.searchUsers()">
@@ -2222,8 +2222,9 @@ const App = {
     if (!this.state.user) { this.showAuth('login'); return; }
     const res = await this.api('POST', '/users/' + userId + '/follow');
     if (!res.success) return this.toast(res.message, 'error');
+    const isFollowing = res.following !== undefined ? res.following : res.data?.following;
     if (btn) {
-      if (res.data.following) {
+      if (isFollowing) {
         btn.textContent = 'Following';
         btn.classList.add('following');
         btn.classList.remove('not-following');
@@ -2233,7 +2234,7 @@ const App = {
         btn.classList.add('not-following');
       }
     }
-    this.toast(res.data.following ? 'Following!' : 'Unfollowed', 'success');
+    this.toast(isFollowing ? 'Following!' : 'Unfollowed', 'success');
   },
 
   async loadFollowStatus(userId, btn) {
@@ -2258,11 +2259,11 @@ const App = {
     this._pst = setTimeout(async () => {
       const res = await this.api('GET', '/projects?search=' + encodeURIComponent(v.trim()) + '&limit=10&sort=newest');
       if (!res.success || !res.data.projects.length) { el.innerHTML = '<p style="color:var(--txt2);text-align:center;padding:20px 0">No projects found</p>'; return; }
-      el.innerHTML = res.data.projects.map(p => {
-        const thumb = p.thumbnailUrl
+      el.innerHTML = res.data.projects.map(function(p) {
+        var thumb = p.thumbnailUrl
           ? '<img src="' + p.thumbnailUrl + '" style="width:54px;height:54px;border-radius:4px;object-fit:cover;flex-shrink:0">'
-          : '<div style="width:54px;height:54px;border-radius:4px;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:1.4rem;flex-shrink:0">\u{1F4E6}</div>';
-        return '<div data-pid="' + p._id + '" class="psearch-item" style="display:flex;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px;margin-bottom:8px;cursor:pointer">' + thumb + '<div style="min-width:0"><div style="font-weight:700;font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + this.esc(p.title) + '</div><div style="font-size:.78rem;color:var(--txt2);margin-top:2px">u/' + this.esc(p.authorName) + ' &middot; ' + (p.likes||0) + ' upvotes</div><div style="font-size:.75rem;color:var(--brand);margin-top:2px">' + this.esc(p.category) + '</div></div></div>';
+          : '<div style="width:54px;height:54px;border-radius:4px;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:1.4rem;flex-shrink:0">📦</div>';
+        return '<div data-pid="' + p._id + '" class="psearch-item" style="display:flex;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px;margin-bottom:8px;cursor:pointer">' + thumb + '<div style="min-width:0"><div style="font-weight:700;font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + App.esc(p.title) + '</div><div style="font-size:.78rem;color:var(--txt2);margin-top:2px">u/' + App.esc(p.authorName) + ' &middot; ' + (p.likes||0) + ' upvotes</div><div style="font-size:.75rem;color:var(--brand);margin-top:2px">' + App.esc(p.category) + '</div></div></div>';
       }).join('');
       el.querySelectorAll('.psearch-item').forEach(function(item) { item.addEventListener('click', function() { App.showProject(item.dataset.pid); }); });
     }, 350);
@@ -2277,14 +2278,14 @@ const App = {
     const res = await this.api('GET', '/dm/conversations');
     const el = document.getElementById('dm-conv-list');
     if (!res.success || !res.data.length) { el.innerHTML = '<div style="padding:20px;color:var(--txt2);font-size:.82rem;text-align:center">No conversations yet.<br>Message someone from their profile.</div>'; return; }
-    el.innerHTML = res.data.map(c => {
-      const p = c.partner;
-      const preview = c.lastMsg.content.length > 35 ? c.lastMsg.content.slice(0, 35) + '...' : c.lastMsg.content;
-      const unread = c.unread > 0 ? '<span style="background:var(--brand);color:#fff;border-radius:10px;padding:1px 7px;font-size:.7rem;font-weight:700;margin-left:auto">' + c.unread + '</span>' : '';
-      return '<div data-uid="' + p._id + '" data-uname="' + this.esc(p.username) + '" class="dm-conv-item" style="padding:12px 14px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><div style="width:36px;height:36px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.9rem;flex-shrink:0">' + (p.username||'U')[0].toUpperCase() + '</div><div style="min-width:0;flex:1"><div style="font-weight:700;font-size:.85rem">u/' + this.esc(p.username) + '</div><div style="font-size:.75rem;color:var(--txt2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + this.esc(preview) + '</div></div>' + unread + '</div>';
-    }).join('');
     var self = this;
-    el.querySelectorAll('.dm-conv-item').forEach(function(item) { item.addEventListener('click', function() { self.openConversation(item.dataset.uid, item.dataset.uname); }); });
+    el.innerHTML = res.data.map(function(c) {
+      var p = c.partner;
+      var preview = c.lastMsg.content.length > 35 ? c.lastMsg.content.slice(0,35) + '...' : c.lastMsg.content;
+      var unread = c.unread > 0 ? '<span style="background:var(--brand);color:#fff;border-radius:10px;padding:1px 7px;font-size:.7rem;font-weight:700;margin-left:auto">' + c.unread + '</span>' : '';
+      return '<div data-uid="' + p._id + '" data-uname="' + App.esc(p.username) + '" class="dm-conv-item" style="padding:12px 14px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px"><div style="width:36px;height:36px;border-radius:50%;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.9rem;flex-shrink:0">' + (p.username||'U')[0].toUpperCase() + '</div><div style="min-width:0;flex:1"><div style="font-weight:700;font-size:.85rem">u/' + App.esc(p.username) + '</div><div style="font-size:.75rem;color:var(--txt2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + App.esc(preview) + '</div></div>' + unread + '</div>';
+    }).join('');
+    el.querySelectorAll('.dm-conv-item').forEach(function(item) { item.addEventListener('click', function() { App.openConversation(item.dataset.uid, item.dataset.uname); }); });
   },
 
   async openConversation(userId, username) {
@@ -2296,7 +2297,7 @@ const App = {
     const res = await this.api('GET', '/dm/' + userId);
     const el = document.getElementById('dm-messages');
     if (!res.success) { el.innerHTML = '<div style="text-align:center;color:var(--txt2);padding:20px">Failed to load</div>'; return; }
-    if (!res.data.length) { el.innerHTML = '<div style="text-align:center;color:var(--txt2);padding:40px;font-size:.85rem">No messages yet \u{1F44B}</div>'; return; }
+    if (!res.data.length) { el.innerHTML = '<div style="text-align:center;color:var(--txt2);padding:40px;font-size:.85rem">No messages yet — say hi!</div>'; return; }
     var myId = this.state.user.id;
     el.innerHTML = res.data.map(function(m) {
       var mine = String(m.fromId) === String(myId);
@@ -2452,13 +2453,12 @@ const App = {
       acts.innerHTML = '';
       acts.appendChild(followBtn);
       if (this.state.user) {
-        const dmBtn = document.createElement('button');
-        dmBtn.className = 'btn btn-outline btn-sm';
-        dmBtn.textContent = '💬 Message';
-        dmBtn.style.marginLeft = '8px';
-        var _u = userId, _n = user.username;
-        dmBtn.addEventListener('click', function() { App.openDMWith(_u, _n); });
-        acts.appendChild(dmBtn);
+        var _dmBtn = document.createElement('button');
+        _dmBtn.className = 'btn btn-outline btn-sm';
+        _dmBtn.textContent = '💬 Message';
+        _dmBtn.style.marginLeft = '8px';
+        (function(uid, uname) { _dmBtn.addEventListener('click', function() { App.openDMWith(uid, uname); }); })(userId, user.username);
+        acts.appendChild(_dmBtn);
       }
       this.loadFollowStatus(userId, followBtn);
     }
